@@ -39,6 +39,7 @@ bool ScreenGrabber::m_monitorSelectionActive = false;
 
 ScreenGrabber::ScreenGrabber(QObject* parent)
   : QObject(parent)
+  , m_spanningCapture(false)
   , m_selectedMonitor(-1)
   , m_highlightedMonitorPreview(-1)
   , m_monitorSelectionLoop(nullptr)
@@ -186,8 +187,20 @@ QPixmap ScreenGrabber::selectMonitorAndCrop(const QPixmap& fullScreenshot,
         return cropToMonitor(fullScreenshot, 0);
     }
 
+#if defined(Q_OS_WIN)
+    // Snipping-tool style: keep the whole desktop uncropped; the capture
+    // widget spans all monitors and locks the selection to one screen on
+    // the first mouse press.
+    if (ConfigHandler().captureRegionMode() ==
+        ConfigHandler::RegionAllMonitors) {
+        m_spanningCapture = true;
+        return fullScreenshot;
+    }
+#endif
+
     // Capture Active Monitor: auto-select monitor under cursor
-    if (ConfigHandler().captureActiveMonitor()) {
+    if (ConfigHandler().captureRegionMode() ==
+        ConfigHandler::RegionActiveMonitor) {
         if (m_info.waylandDetected()) {
             AbstractLogger::error()
               << tr("Capture Active Monitor is not supported on Wayland due to "
@@ -757,12 +770,14 @@ QPixmap ScreenGrabber::windowsScreenshot(int wid)
     int minLogicalX = geometry.x();
     int minLogicalY = geometry.y();
 
+    m_screenPixmaps.clear();
     for (QScreen* screen : screens) {
         QRect screenGeom = screen->geometry();
         qreal screenDpr = screen->devicePixelRatio();
 
         QPixmap screenPixmap = screen->grabWindow(wid);
         screenPixmap.setDevicePixelRatio(1.0);
+        m_screenPixmaps[screen] = screenPixmap;
 
         int logicalX = screenGeom.x() - minLogicalX;
         int logicalY = screenGeom.y() - minLogicalY;

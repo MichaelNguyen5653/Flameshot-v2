@@ -7,6 +7,7 @@
 
 #include <QEvent>
 #include <QList>
+#include <QMap>
 #include <QObject>
 #include <QPixmap>
 #include <QScreen>
@@ -30,6 +31,13 @@ public:
     int getSelectedMonitor() const { return m_selectedMonitor; }
     QScreen* getSelectedScreen() const;
     QPixmap selectMonitorAndCrop(const QPixmap& fullScreenshot, bool& ok);
+    // True when the last grab kept the whole desktop so the capture widget
+    // can span all monitors (captureRegionMode == RegionAllMonitors)
+    bool isSpanning() const { return m_spanningCapture; }
+    // Native (physical pixel) per-screen grabs retained from the last
+    // windowsScreenshot() call. QPixmap is implicitly shared, so copying
+    // the map is cheap.
+    QMap<QScreen*, QPixmap> screenPixmaps() const { return m_screenPixmaps; }
 
 protected:
     bool eventFilter(QObject* obj, QEvent* event) override;
@@ -49,6 +57,8 @@ private:
 
     DesktopInfo m_info;
     QPixmap Screenshot;
+    QMap<QScreen*, QPixmap> m_screenPixmaps;
+    bool m_spanningCapture;
     int m_selectedMonitor;
     int m_highlightedMonitorPreview;
     QList<MonitorPreview*> m_monitorPreviews;
