@@ -1,10 +1,15 @@
 cmake_minimum_required(VERSION 3.22)
 # cmake_policy(SET CMP0076 OLD)
 
-# Cached so a release build can override it from the git tag
-# (-DFLAMESHOT_VERSION=...), keeping the tag the single source of truth
-# instead of relying on this line being bumped by hand.
-set(FLAMESHOT_VERSION 14.1.0 CACHE STRING "Application version")
+set(FLAMESHOT_VERSION 14.1.0)
+
+# A release build passes the version derived from the git tag, so the tag
+# stays the single source of truth. Keep the plain set() above on one line
+# and unadorned: the packaging workflows grep that exact line to read the
+# version, and anything trailing (a CACHE clause, a comment) ends up in it.
+if(RELEASE_VERSION)
+  set(FLAMESHOT_VERSION ${RELEASE_VERSION})
+endif()
 
 # Flameshot-org
 set(GIT_API_URL "https://api.github.com/repos/flameshot-org/flameshot/releases/latest")
