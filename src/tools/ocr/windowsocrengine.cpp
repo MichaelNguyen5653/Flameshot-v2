@@ -58,8 +58,8 @@ struct ApartmentScope
 WinImaging::SoftwareBitmap toSoftwareBitmap(const QImage& image)
 {
     // Format_RGBA8888 rows are contiguous: bytesPerLine == width * 4
-    auto buffer = winrt::Windows::Security::Cryptography::
-      CryptographicBuffer::CreateFromByteArray(winrt::array_view<uint8_t const>(
+    auto buffer = winrt::Windows::Security::Cryptography::CryptographicBuffer::
+      CreateFromByteArray(winrt::array_view<uint8_t const>(
         image.constBits(), image.constBits() + image.sizeInBytes()));
     return WinImaging::SoftwareBitmap::CreateCopyFromBuffer(
       buffer,

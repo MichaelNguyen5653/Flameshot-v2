@@ -75,8 +75,8 @@ QImage ocrPreprocessImage(const QImage& image,
     }
 
     // Oversized captures must fit within the engine's limit
-    if (maxDimension > 0 && (prepared.width() > maxDimension ||
-                             prepared.height() > maxDimension)) {
+    if (maxDimension > 0 &&
+        (prepared.width() > maxDimension || prepared.height() > maxDimension)) {
         prepared = prepared.scaled(maxDimension,
                                    maxDimension,
                                    Qt::KeepAspectRatio,
