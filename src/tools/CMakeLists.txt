@@ -63,6 +63,12 @@ target_sources(
           ocr/nullocrengine.h
           ocr/ocrpreprocess.h
           ocr/ocrpreprocess.cpp)
+if (WIN32)
+  target_sources(flameshot PRIVATE ocr/windowsocrengine.h
+                                   ocr/windowsocrengine.cpp)
+  # C++/WinRT runtime functions for Windows.Media.Ocr
+  target_link_libraries(flameshot windowsapp)
+endif()
 
 target_sources(
   flameshot
