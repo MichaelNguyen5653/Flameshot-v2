@@ -30,9 +30,29 @@ void OcrWorker::process()
     // The engine is created inside the worker thread so nothing is shared
     // with the GUI thread
     QScopedPointer<OcrEngine> engine(OcrEngine::create());
-    const QImage prepared =
-      ocrPreprocessImage(m_image, engine->maxImageDimension());
-    emit finished(engine->recognize(prepared, m_language), m_runId);
+    const int maxDimension = engine->maxImageDimension();
+    const QImage prepared = ocrPreprocessImage(m_image, maxDimension);
+    OcrResult result = engine->recognize(prepared, m_language);
+
+    // The first pass reveals the actual glyph size; when the text turns
+    // out small (e.g. a full-window capture of a terminal), a second pass
+    // on a properly sized upscale is significantly more accurate
+    if (result.status == OcrResult::Status::Ok) {
+        const qreal rescale = ocrRefinementScale(result.lines);
+        if (rescale > 1.0) {
+            const QImage refined =
+              ocrPreprocessImage(prepared, maxDimension, rescale);
+            if (refined.size() != prepared.size()) {
+                const OcrResult secondPass =
+                  engine->recognize(refined, m_language);
+                if (secondPass.status == OcrResult::Status::Ok) {
+                    result = secondPass;
+                }
+            }
+        }
+    }
+
+    emit finished(result, m_runId);
 }
 
 OcrResultsWindow::OcrResultsWindow(const QPixmap& capture, QWidget* parent)
