@@ -138,7 +138,6 @@ void OcrResultsWindow::startRecognition()
 {
     const quint64 runId = ++m_runId;
     m_statusLabel->hide();
-    m_copyButton->setEnabled(false);
     m_textEdit->setPlainText(QString());
     m_busyDelay->start();
 
@@ -181,7 +180,6 @@ void OcrResultsWindow::applyResult(const OcrResult& result)
     switch (result.status) {
         case OcrResult::Status::Ok:
             m_textEdit->setPlainText(result.fullText);
-            m_copyButton->setEnabled(true);
             break;
         case OcrResult::Status::NoTextFound:
             m_statusLabel->setText(tr("No text was found in the selection."));

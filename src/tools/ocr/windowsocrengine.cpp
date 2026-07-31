@@ -24,14 +24,36 @@ QString toQString(const winrt::hstring& str)
     return QString::fromWCharArray(str.c_str(), static_cast<int>(str.size()));
 }
 
-void ensureApartment()
+/**
+ * Initializes a COM apartment for the calling thread and releases it again
+ * on scope exit. Initialization fails harmlessly when the thread already
+ * has an apartment of another type (the Qt GUI thread is STA), in which
+ * case the existing one is left untouched. Declare before any WinRT local
+ * so those are destroyed first.
+ */
+struct ApartmentScope
 {
-    // Fails harmlessly when the thread already has a COM apartment
-    try {
-        winrt::init_apartment(winrt::apartment_type::multi_threaded);
-    } catch (...) {
+    bool owned = false;
+
+    ApartmentScope()
+    {
+        try {
+            winrt::init_apartment(winrt::apartment_type::multi_threaded);
+            owned = true;
+        } catch (...) {
+        }
     }
-}
+
+    ~ApartmentScope()
+    {
+        if (owned) {
+            try {
+                winrt::uninit_apartment();
+            } catch (...) {
+            }
+        }
+    }
+};
 
 WinImaging::SoftwareBitmap toSoftwareBitmap(const QImage& image)
 {
@@ -58,7 +80,7 @@ bool WindowsOcrEngine::isAvailable() const
 
 QStringList WindowsOcrEngine::availableLanguages() const
 {
-    ensureApartment();
+    ApartmentScope apartment;
     QStringList languages;
     try {
         for (const auto& lang :
@@ -73,6 +95,7 @@ QStringList WindowsOcrEngine::availableLanguages() const
 
 int WindowsOcrEngine::maxImageDimension() const
 {
+    ApartmentScope apartment;
     try {
         return static_cast<int>(WinOcr::OcrEngine::MaxImageDimension());
     } catch (...) {
@@ -88,7 +111,7 @@ OcrResult WindowsOcrEngine::recognize(const QImage& image,
         result.status = OcrResult::Status::NoTextFound;
         return result;
     }
-    ensureApartment();
+    ApartmentScope apartment;
     try {
         WinOcr::OcrEngine engine{ nullptr };
         if (!language.isEmpty()) {

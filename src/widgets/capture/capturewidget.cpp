@@ -1025,7 +1025,12 @@ void CaptureWidget::destroyDimOverlays()
 {
     for (auto it = m_dimOverlays.begin(); it != m_dimOverlays.end(); ++it) {
         if (!it.value().isNull()) {
-            delete it.value();
+            // Hide now so the screen clears immediately, but destroy via the
+            // event loop: this can be reached from inside an overlay's own
+            // event handler (Escape while it holds focus), and deleting it
+            // there would unwind into freed memory
+            it.value()->hide();
+            it.value()->deleteLater();
         }
     }
     m_dimOverlays.clear();
