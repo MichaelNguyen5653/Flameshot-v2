@@ -1,7 +1,10 @@
 cmake_minimum_required(VERSION 3.22)
 # cmake_policy(SET CMP0076 OLD)
 
-set(FLAMESHOT_VERSION 14.0.0)
+# Cached so a release build can override it from the git tag
+# (-DFLAMESHOT_VERSION=...), keeping the tag the single source of truth
+# instead of relying on this line being bumped by hand.
+set(FLAMESHOT_VERSION 14.1.0 CACHE STRING "Application version")
 
 # Flameshot-org
 set(GIT_API_URL "https://api.github.com/repos/flameshot-org/flameshot/releases/latest")
@@ -172,8 +175,10 @@ if(WIN32)
 
   else()
     set(CPACK_GENERATOR WIX ZIP)
-    set(CPACK_PACKAGE_NAME "${PROJECT_NAME_CAPITALIZED}")
-    set(CPACK_PACKAGE_INSTALL_DIRECTORY "${PROJECT_NAME_CAPITALIZED}")
+    # This fork ships as "Flameshot-v2" so it is distinguishable from
+    # upstream Flameshot in Add/Remove Programs and on disk
+    set(CPACK_PACKAGE_NAME "Flameshot-v2")
+    set(CPACK_PACKAGE_INSTALL_DIRECTORY "Flameshot-v2")
     set(CPACK_PACKAGE_EXECUTABLES ${PROJECT_NAME} "${PROJECT_NAME_CAPITALIZED}")
     set(CPACK_CREATE_DESKTOP_LINKS ${PROJECT_NAME})
 
@@ -192,7 +197,9 @@ if(WIN32)
     set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/packaging/win-installer/LICENSE/GPL-3.0.txt")
     set(CPACK_RESOURCE_FILE_README "${CMAKE_SOURCE_DIR}/README.md")
 
-    set(CPACK_WIX_UPGRADE_GUID "26D8062A-66D9-48D9-8924-42090FB9B3F9")
+    # Distinct from upstream Flameshot's GUID: sharing it would make this
+    # installer silently replace an existing upstream installation
+    set(CPACK_WIX_UPGRADE_GUID "42607922-E95D-4601-A561-F750286F20B6")
   endif()
 elseif(APPLE)
   set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY 0)

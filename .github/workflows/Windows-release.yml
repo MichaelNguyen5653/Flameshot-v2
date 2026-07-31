@@ -46,6 +46,22 @@ jobs:
           cache-key-prefix: install-qt-action-${{ env.QT_VERSION }}
           dir: ${{ github.workspace }}/qt
 
+      - name: Resolve version from tag
+        id: version
+        shell: pwsh
+        # The tag is the single source of truth for the version; it is
+        # passed to CMake so the number in CMakeLists.txt can never drift
+        # out of sync with the release again.
+        run: |
+          $tag = "${{ github.event.inputs.tag }}"
+          if (-not $tag) { $tag = "${{ github.ref_name }}" }
+          $version = $tag -replace '^v', ''
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "Tag '$tag' must be a numeric version like v14.1.0"
+          }
+          "version=$version" | Out-File -Append -Encoding utf8 $env:GITHUB_OUTPUT
+          Write-Host "Building version $version from tag $tag"
+
       - name: Configure
         shell: pwsh
         # USE_PORTABLE_CONFIG must be OFF for an installed build: the
@@ -56,6 +72,7 @@ jobs:
           cmake -B build -G "Visual Studio 17 2022" -A x64
           -DCMAKE_BUILD_TYPE=Release
           -DUSE_PORTABLE_CONFIG=OFF
+          -DFLAMESHOT_VERSION=${{ steps.version.outputs.version }}
 
       - name: Build
         shell: pwsh
