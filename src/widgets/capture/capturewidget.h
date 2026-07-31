@@ -30,6 +30,7 @@ class QLabel;
 class QPaintEvent;
 class QResizeEvent;
 class QMouseEvent;
+class QScreen;
 class QShortcut;
 class QNetworkAccessManager;
 class QNetworkReply;
@@ -158,6 +159,14 @@ private:
 
     QPoint snapToGrid(const QPoint& point) const;
 
+#if defined(Q_OS_WIN)
+    // Spanning ("snip across all monitors") capture: the overlay covers
+    // the whole virtual desktop until the first mouse press locks the
+    // capture onto one screen
+    void collapseSpanToPoint(const QPoint& globalPos);
+    void drawSpanningBackground(QPainter* painter);
+#endif
+
     ////////////////////////////////////////
     // Class members
 
@@ -232,4 +241,13 @@ private:
     int m_gridSize{ 10 };
 
     bool m_clipboardWorkaroundDone{ false };
+
+    // Spanning capture state (only ever true on Windows)
+    bool m_spanningMode{ false };
+#if defined(Q_OS_WIN)
+    // Native per-screen grabs kept until the spanning capture collapses
+    QMap<QScreen*, QPixmap> m_screenPixmaps;
+    // Union of all screen geometries (global logical coordinates)
+    QRect m_virtualGeometry;
+#endif
 };

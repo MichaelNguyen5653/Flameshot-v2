@@ -137,33 +137,48 @@ CaptureWidget::CaptureWidget(const CaptureRequest& req,
                        Qt::SubWindow // Hides the taskbar icon
         );
 #endif
-        // Position the window at the selected screen's position
-        // (or the topLeft of all screens if no specific screen was selected)
-        if (selectedScreen) {
-            move(selectedScreen->geometry().topLeft());
+        m_spanningMode = grabber.isSpanning();
+        if (m_spanningMode) {
+            // Snip-across-all-monitors: cover the whole virtual desktop.
+            // The first mouse press locks the capture onto one screen
+            // (see collapseSpanToPoint)
+            m_screenPixmaps = grabber.screenPixmaps();
+            m_virtualGeometry = grabber.desktopGeometry();
+            // A remembered region is relative to a single screen; it has
+            // no meaning before a screen is picked
+            m_context.request.setInitialSelection(QRect());
+            setGeometry(m_virtualGeometry);
         } else {
-            for (QScreen* const screen : QGuiApplication::screens()) {
-                QPoint topLeftScreen = screen->geometry().topLeft();
+            // Position the window at the selected screen's position
+            // (or the topLeft of all screens if no specific screen was
+            // selected)
+            if (selectedScreen) {
+                move(selectedScreen->geometry().topLeft());
+            } else {
+                for (QScreen* const screen : QGuiApplication::screens()) {
+                    QPoint topLeftScreen = screen->geometry().topLeft();
 
-                if (topLeftScreen.x() < topLeft.x()) {
-                    topLeft.setX(topLeftScreen.x());
+                    if (topLeftScreen.x() < topLeft.x()) {
+                        topLeft.setX(topLeftScreen.x());
+                    }
+                    if (topLeftScreen.y() < topLeft.y()) {
+                        topLeft.setY(topLeftScreen.y());
+                    }
                 }
-                if (topLeftScreen.y() < topLeft.y()) {
-                    topLeft.setY(topLeftScreen.y());
-                }
+                move(topLeft);
             }
-            move(topLeft);
-        }
-        // On Windows, account for DPR when sizing the window
-        QSize windowSize = pixmap().size();
-        if (pixmap().devicePixelRatio() > 1.0) {
-            windowSize = QSize(pixmap().width() / pixmap().devicePixelRatio(),
-                               pixmap().height() / pixmap().devicePixelRatio());
-        }
-        resize(windowSize);
+            // On Windows, account for DPR when sizing the window
+            QSize windowSize = pixmap().size();
+            if (pixmap().devicePixelRatio() > 1.0) {
+                windowSize =
+                  QSize(pixmap().width() / pixmap().devicePixelRatio(),
+                        pixmap().height() / pixmap().devicePixelRatio());
+            }
+            resize(windowSize);
 
-        if (selectedScreen != nullptr && windowHandle()) {
-            windowHandle()->setScreen(selectedScreen);
+            if (selectedScreen != nullptr && windowHandle()) {
+                windowHandle()->setScreen(selectedScreen);
+            }
         }
 #elif defined(Q_OS_MACOS)
         if (!ConfigHandler().useNativeFullscreen()) {
@@ -205,17 +220,28 @@ CaptureWidget::CaptureWidget(const CaptureRequest& req,
 
     QVector<QRect> areas;
     if (m_context.fullscreen) {
-        // Always display on a single screen, normalized to (0, 0)
-        QScreen* screenForAreas = selectedScreen;
-        if (!screenForAreas) {
-            screenForAreas = QGuiAppCurrentScreen().currentScreen();
+#if defined(Q_OS_WIN)
+        if (m_spanningMode) {
+            // One region per monitor, in widget-local coordinates
+            for (QScreen* const screen : QGuiApplication::screens()) {
+                areas.append(screen->geometry().translated(
+                  -m_virtualGeometry.topLeft()));
+            }
+        } else
+#endif
+        {
+            // Always display on a single screen, normalized to (0, 0)
+            QScreen* screenForAreas = selectedScreen;
+            if (!screenForAreas) {
+                screenForAreas = QGuiAppCurrentScreen().currentScreen();
+            }
+            if (!screenForAreas) {
+                screenForAreas = QGuiApplication::primaryScreen();
+            }
+            QRect r = screenForAreas ? screenForAreas->geometry() : QRect();
+            r.moveTo(0, 0);
+            areas.append(r);
         }
-        if (!screenForAreas) {
-            screenForAreas = QGuiApplication::primaryScreen();
-        }
-        QRect r = screenForAreas ? screenForAreas->geometry() : QRect();
-        r.moveTo(0, 0);
-        areas.append(r);
     } else {
         areas.append(rect());
     }
@@ -289,6 +315,19 @@ CaptureWidget::CaptureWidget(const CaptureRequest& req,
     // In fullscreen mode, use the normalized area; otherwise use widget rect
     QRect overlayArea =
       m_context.fullscreen && !areas.isEmpty() ? areas.first() : rect();
+#if defined(Q_OS_WIN)
+    if (m_spanningMode) {
+        // Show the help message on the screen the cursor is on
+        const QPoint cursorPos =
+          QCursor::pos() - m_virtualGeometry.topLeft();
+        for (const QRect& area : areas) {
+            if (area.contains(cursorPos)) {
+                overlayArea = area;
+                break;
+            }
+        }
+    }
+#endif
     OverlayMessage::init(this, overlayArea);
 
     if (m_config.showHelp()) {
@@ -682,7 +721,15 @@ void CaptureWidget::paintEvent(QPaintEvent* paintEvent)
         painter.save();
         save = true;
     }
+#if defined(Q_OS_WIN)
+    if (m_spanningMode) {
+        drawSpanningBackground(&painter);
+    } else {
+        painter.drawPixmap(0, 0, m_context.screenshot);
+    }
+#else
     painter.drawPixmap(0, 0, m_context.screenshot);
+#endif
     if (m_selection && m_xywhDisplay) {
         const QRect& selection = m_selection->geometry().normalized();
         const qreal scale = m_context.screenshot.devicePixelRatio();
@@ -873,6 +920,74 @@ int CaptureWidget::selectToolItemAtPos(const QPoint& pos)
     return activeLayerIndex;
 }
 
+#if defined(Q_OS_WIN)
+void CaptureWidget::drawSpanningBackground(QPainter* painter)
+{
+    // Each screen's native grab is drawn into its logical rect. On screens
+    // whose DPR matches the window this is a 1:1 blit; on others Qt scales
+    // the preview. The final image is cropped from the native grab after
+    // the collapse, so output quality is unaffected either way.
+    for (auto it = m_screenPixmaps.constBegin();
+         it != m_screenPixmaps.constEnd();
+         ++it) {
+        const QRect target =
+          it.key()->geometry().translated(-m_virtualGeometry.topLeft());
+        painter->drawPixmap(target, it.value());
+    }
+}
+
+void CaptureWidget::collapseSpanToPoint(const QPoint& globalPos)
+{
+    QScreen* screen = QGuiApplication::screenAt(globalPos);
+    if (screen == nullptr) {
+        screen = QGuiApplication::primaryScreen();
+    }
+    m_spanningMode = false;
+
+    // Swap in the locked screen's native grab at its own DPR; from here
+    // on this capture behaves exactly like a single-monitor capture
+    QPixmap native = m_screenPixmaps.value(screen);
+    if (!native.isNull()) {
+        native.setDevicePixelRatio(screen->devicePixelRatio());
+        m_context.screenshot = native;
+        m_context.origScreenshot = native;
+    }
+    m_screenPixmaps.clear();
+
+    // Same geometry dance as the constructor's selected-screen path
+    move(screen->geometry().topLeft());
+    QSize windowSize = m_context.screenshot.size();
+    if (m_context.screenshot.devicePixelRatio() > 1.0) {
+        windowSize = QSize(m_context.screenshot.width() /
+                             m_context.screenshot.devicePixelRatio(),
+                           m_context.screenshot.height() /
+                             m_context.screenshot.devicePixelRatio());
+    }
+    resize(windowSize);
+    if (windowHandle()) {
+        windowHandle()->setScreen(screen);
+    }
+
+    QRect screenRect = screen->geometry();
+    screenRect.moveTo(0, 0);
+    m_buttonHandler->updateScreenRegions(QVector<QRect>{ screenRect });
+    OverlayMessage::setTargetArea(screenRect);
+
+    QRect panelRect = screenRect;
+    panelRect.setWidth(m_colorPicker->width() * 1.5);
+    m_panel->setGeometry(panelRect);
+
+    // The magnifier keeps its own copy of the screenshot, so recreate it
+    // against the locked screen's grab
+    if (m_magnifier) {
+        m_magnifier->deleteLater();
+        m_magnifier = new MagnifierWidget(
+          m_context.screenshot, m_uiColor, m_config.squareMagnifier(), this);
+    }
+    update();
+}
+#endif
+
 void CaptureWidget::mousePressEvent(QMouseEvent* e)
 {
     activateWindow();
@@ -880,6 +995,17 @@ void CaptureWidget::mousePressEvent(QMouseEvent* e)
     m_startMovePos = QPoint();
     m_mousePressedPos = e->pos();
     m_activeToolOffsetToMouseOnStart = QPoint();
+#if defined(Q_OS_WIN)
+    if (m_spanningMode) {
+        const QPoint globalPos = e->globalPosition().toPoint();
+        collapseSpanToPoint(globalPos);
+        // The event was delivered in the old (spanning) coordinates;
+        // remap everything recorded from it to the collapsed window
+        m_mousePressedPos = mapFromGlobal(globalPos);
+        m_context.mousePos = m_mousePressedPos;
+        m_selection->setDragStartPos(m_mousePressedPos);
+    }
+#endif
     if (m_colorPicker->isVisible()) {
         updateCursor();
         return;

@@ -40,6 +40,14 @@ void OverlayMessage::init(QWidget* parent, const QRect& targetArea)
     new OverlayMessage(parent, targetArea);
 }
 
+void OverlayMessage::setTargetArea(const QRect& targetArea)
+{
+    if (m_instance) {
+        m_instance->m_targetArea = targetArea;
+        m_instance->updateGeometry();
+    }
+}
+
 /**
  * @brief Push a message to the message stack.
  * @param msg Message text formatted as rich text
