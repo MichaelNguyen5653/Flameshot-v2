@@ -1,20 +1,9 @@
 name: Building(CMake)
 
+# Builds the Linux and macOS matrices, which this Windows-only fork does not
+# need on every push. Run it from the Actions tab to check that the
+# non-Windows code paths still compile after touching shared code.
 on:
-  push:
-    branches: [ master ]
-    paths-ignore:
-      - '*.md'
-      - 'LICENSE'
-      - 'docs/**'
-  pull_request:
-    branches: [ master ]
-    paths-ignore:
-      - '*.md'
-      - 'LICENSE'
-      - 'docs/**'
-      - 'data/translations/*.ts'
-
   workflow_dispatch:
 
 env:

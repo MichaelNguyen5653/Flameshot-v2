@@ -1,21 +1,9 @@
 name: Packaging(MacOS)
 
+# This fork targets Windows only, and macOS runner minutes bill at 10x on
+# private repositories, so this never runs automatically; start it from the
+# Actions tab when it is actually needed.
 on:
-  push:
-    branches:
-      - master
-    paths-ignore:
-      - "*.md"
-      - "LICENSE"
-      - "docs/**"
-
-  pull_request:
-    paths-ignore:
-      - "*.md"
-      - "LICENSE"
-      - "docs/**"
-      - "data/translations/*.ts"
-
   workflow_dispatch:
 
 env:
