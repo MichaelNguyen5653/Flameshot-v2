@@ -62,7 +62,7 @@ private slots:
     void setReverseArrow(bool checked);
     void setInsecurePixelate(bool checked);
 #if !defined(Q_OS_MACOS)
-    void captureActiveMonitorChanged(bool checked);
+    void captureRegionModeChanged(int index);
 #endif
 #if defined(Q_OS_MACOS)
     void useNativeFullscreenChanged(bool checked);
@@ -109,7 +109,7 @@ private:
     void initReverseArrow();
     void initInsecurePixelate();
 #if !defined(Q_OS_MACOS)
-    void initCaptureActiveMonitor();
+    void initCaptureRegionMode();
 #endif
 #if defined(Q_OS_MACOS)
     void initUseNativeFullscreen();
@@ -166,7 +166,7 @@ private:
     QCheckBox* m_reverseArrow;
     QCheckBox* m_insecurePixelate;
 #if !defined(Q_OS_MACOS)
-    QCheckBox* m_captureActiveMonitor;
+    QComboBox* m_captureRegionMode;
 #endif
 #if defined(Q_OS_MACOS)
     QCheckBox* m_useNativeFullscreen;

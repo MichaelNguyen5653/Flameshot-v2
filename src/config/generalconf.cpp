@@ -55,7 +55,7 @@ GeneralConf::GeneralConf(QWidget* parent)
     initUndoLimit();
     initInsecurePixelate();
 #if !defined(Q_OS_MACOS)
-    initCaptureActiveMonitor();
+    initCaptureRegionMode();
 #endif
 #if defined(Q_OS_MACOS)
     initUseNativeFullscreen();
@@ -128,7 +128,9 @@ void GeneralConf::_updateComponents(bool allowEmptySavePath)
     m_showTray->setChecked(!config.disabledTrayIcon());
 
 #if !defined(Q_OS_MACOS)
-    m_captureActiveMonitor->setChecked(config.captureActiveMonitor());
+    int regionModeIndex = m_captureRegionMode->findData(
+      static_cast<int>(config.captureRegionMode()));
+    m_captureRegionMode->setCurrentIndex(qMax(0, regionModeIndex));
 #endif
 #if defined(Q_OS_MACOS)
     m_useNativeFullscreen->setChecked(config.useNativeFullscreen());
@@ -921,26 +923,44 @@ void GeneralConf::setInsecurePixelate(bool checked)
 }
 
 #if !defined(Q_OS_MACOS)
-void GeneralConf::initCaptureActiveMonitor()
+void GeneralConf::initCaptureRegionMode()
 {
-    m_captureActiveMonitor = new QCheckBox(
-      tr("Capture active monitor in X11 and Windows (skip monitor selection)"),
-      this);
-    m_captureActiveMonitor->setToolTip(
-      tr("Automatically capture the monitor where the cursor is located "
-         "instead of showing the monitor selection dialog. "
-         "This feature is not supported on macOS and Wayland."));
-    m_scrollAreaLayout->addWidget(m_captureActiveMonitor);
+    auto* rowLayout = new QHBoxLayout();
+    rowLayout->addWidget(new QLabel(tr("Multi-monitor capture")));
 
-    connect(m_captureActiveMonitor,
-            &QCheckBox::clicked,
-            this,
-            &GeneralConf::captureActiveMonitorChanged);
+    m_captureRegionMode = new QComboBox(this);
+    m_captureRegionMode->addItem(
+      tr("Ask which monitor to capture"),
+      static_cast<int>(ConfigHandler::RegionSelectMonitor));
+    m_captureRegionMode->addItem(
+      tr("Capture the monitor under the cursor"),
+      static_cast<int>(ConfigHandler::RegionActiveMonitor));
+#if defined(Q_OS_WIN)
+    m_captureRegionMode->addItem(
+      tr("Snip across all monitors"),
+      static_cast<int>(ConfigHandler::RegionAllMonitors));
+#endif
+    m_captureRegionMode->setToolTip(
+      tr("How the capture region is chosen on multi-monitor setups. "
+         "\"Snip across all monitors\" shows one overlay over every monitor "
+         "and lets you drag a selection on any of them, like the Windows "
+         "Snipping Tool. Not supported on macOS and Wayland."));
+    rowLayout->addWidget(m_captureRegionMode);
+    rowLayout->addStretch();
+    m_scrollAreaLayout->addLayout(rowLayout);
+
+    connect(
+      m_captureRegionMode,
+      static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
+      this,
+      &GeneralConf::captureRegionModeChanged);
 }
 
-void GeneralConf::captureActiveMonitorChanged(bool checked)
+void GeneralConf::captureRegionModeChanged(int index)
 {
-    ConfigHandler().setCaptureActiveMonitor(checked);
+    ConfigHandler().setCaptureRegionMode(
+      static_cast<ConfigHandler::CaptureRegionMode>(
+        m_captureRegionMode->itemData(index).toInt()));
 }
 #endif
 

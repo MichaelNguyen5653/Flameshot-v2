@@ -66,6 +66,15 @@ class ConfigHandler : public QObject
 public:
     explicit ConfigHandler();
 
+    // Multi-monitor behavior of GUI captures. Stored in the config as an int
+    // under the key "captureRegionMode".
+    enum CaptureRegionMode
+    {
+        RegionSelectMonitor = 0,
+        RegionActiveMonitor = 1,
+        RegionAllMonitors = 2,
+    };
+
     static ConfigHandler* getInstance();
 
     // Definitions of getters and setters for config options
@@ -151,6 +160,11 @@ public:
 #endif
 #if !defined(Q_OS_MACOS)
     CONFIG_GETTER_SETTER(captureActiveMonitor, setCaptureActiveMonitor, bool)
+    // Implemented manually: when "captureRegionMode" is absent from the
+    // config it is derived from the legacy captureActiveMonitor bool, and
+    // the setter keeps that bool in sync for downgrades.
+    CaptureRegionMode captureRegionMode();
+    void setCaptureRegionMode(CaptureRegionMode mode);
 #endif
 #if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
     CONFIG_GETTER_SETTER(useX11LegacyScreenshot,

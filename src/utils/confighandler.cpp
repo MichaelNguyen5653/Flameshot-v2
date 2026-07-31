@@ -146,6 +146,11 @@ static QMap<class QString, QSharedPointer<ValueHandler>>
     // Auto-select the monitor under the cursor instead of showing
     // the monitor selection UI. Not supported on Wayland.
     OPTION("captureActiveMonitor"         ,Bool               ( false         )),
+    // Multi-monitor behavior of GUI captures: 0 = select monitor,
+    // 1 = active monitor, 2 = snip across all monitors (Windows only).
+    // When absent, derived from captureActiveMonitor; see
+    // ConfigHandler::captureRegionMode().
+    OPTION("captureRegionMode"            ,BoundedInt         ( 0, 2, 0       )),
 #endif
 #if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
     // Bypass freedesktop portal and use Qt's native X11
@@ -399,6 +404,32 @@ int ConfigHandler::toolSize(CaptureTool::Type toolType)
         return drawThickness();
     }
 }
+
+#if !defined(Q_OS_MACOS)
+ConfigHandler::CaptureRegionMode ConfigHandler::captureRegionMode()
+{
+    QString key = QStringLiteral("captureRegionMode");
+    if (!m_settings.contains(key)) {
+        // Configs written before this key existed only have the
+        // captureActiveMonitor bool
+        return captureActiveMonitor() ? RegionActiveMonitor
+                                      : RegionSelectMonitor;
+    }
+    return static_cast<CaptureRegionMode>(value(key).toInt());
+}
+
+void ConfigHandler::setCaptureRegionMode(CaptureRegionMode mode)
+{
+    QString key = QStringLiteral("captureRegionMode");
+    // Same guard as CONFIG_SETTER: avoid a file watcher loop between
+    // multiple instances by only writing actual changes
+    if (QVariant::fromValue(static_cast<int>(mode)) != value(key)) {
+        setValue(key, static_cast<int>(mode));
+    }
+    // Keep the legacy bool in sync so downgrades preserve the behavior
+    setCaptureActiveMonitor(mode == RegionActiveMonitor);
+}
+#endif
 
 // DEFAULTS
 
