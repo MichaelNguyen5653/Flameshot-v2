@@ -32,9 +32,6 @@ public:
 
     void setIgnoreMouse(bool ignore);
     void setIdleCentralCursor(const QCursor& cursor);
-    // Correct the drag origin recorded by parentMousePressEvent when the
-    // parent widget is moved during the press (spanning capture collapse)
-    void setDragStartPos(const QPoint& p);
 
     void setGeometryAnimated(const QRect& r);
     void setGeometry(const QRect& r);

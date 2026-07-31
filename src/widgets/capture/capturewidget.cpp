@@ -31,6 +31,7 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QDateTime>
+#include <QEnterEvent>
 #include <QFontMetrics>
 #include <QMessageBox>
 #include <QPaintEvent>
@@ -137,18 +138,35 @@ CaptureWidget::CaptureWidget(const CaptureRequest& req,
                        Qt::SubWindow // Hides the taskbar icon
         );
 #endif
-        m_spanningMode = grabber.isSpanning();
-        if (m_spanningMode) {
-            // Snip-across-all-monitors: cover the whole virtual desktop.
-            // The first mouse press locks the capture onto one screen
-            // (see collapseSpanToPoint)
+        m_followCursorMode = grabber.isSpanning();
+        if (m_followCursorMode) {
+            // Snip-across-all-monitors. A single window cannot span
+            // mixed-DPI monitors correctly (Qt has one scale factor per
+            // window, but the logical desktop has one per screen), so this
+            // widget covers only the screen under the cursor and follows
+            // the cursor between screens until the first press commits the
+            // capture. The other screens get their own dimming overlays.
             m_screenPixmaps = grabber.screenPixmaps();
-            m_virtualGeometry = grabber.desktopGeometry();
             // A remembered region is relative to a single screen; it has
             // no meaning before a screen is picked
             m_context.request.setInitialSelection(QRect());
-            setGeometry(m_virtualGeometry);
-        } else {
+
+            m_activeScreen = QGuiApplication::screenAt(QCursor::pos());
+            if (m_activeScreen == nullptr) {
+                m_activeScreen = QGuiApplication::primaryScreen();
+            }
+            // Downstream setup (areas, panel, overlay message) keys off
+            // selectedScreen, so the normal single-screen path applies
+            selectedScreen = m_activeScreen;
+
+            QPixmap native = m_screenPixmaps.value(m_activeScreen);
+            if (!native.isNull()) {
+                native.setDevicePixelRatio(m_activeScreen->devicePixelRatio());
+                m_context.screenshot = native;
+                m_context.origScreenshot = native;
+            }
+        }
+        {
             // Position the window at the selected screen's position
             // (or the topLeft of all screens if no specific screen was
             // selected)
@@ -220,28 +238,17 @@ CaptureWidget::CaptureWidget(const CaptureRequest& req,
 
     QVector<QRect> areas;
     if (m_context.fullscreen) {
-#if defined(Q_OS_WIN)
-        if (m_spanningMode) {
-            // One region per monitor, in widget-local coordinates
-            for (QScreen* const screen : QGuiApplication::screens()) {
-                areas.append(screen->geometry().translated(
-                  -m_virtualGeometry.topLeft()));
-            }
-        } else
-#endif
-        {
-            // Always display on a single screen, normalized to (0, 0)
-            QScreen* screenForAreas = selectedScreen;
-            if (!screenForAreas) {
-                screenForAreas = QGuiAppCurrentScreen().currentScreen();
-            }
-            if (!screenForAreas) {
-                screenForAreas = QGuiApplication::primaryScreen();
-            }
-            QRect r = screenForAreas ? screenForAreas->geometry() : QRect();
-            r.moveTo(0, 0);
-            areas.append(r);
+        // Always display on a single screen, normalized to (0, 0)
+        QScreen* screenForAreas = selectedScreen;
+        if (!screenForAreas) {
+            screenForAreas = QGuiAppCurrentScreen().currentScreen();
         }
+        if (!screenForAreas) {
+            screenForAreas = QGuiApplication::primaryScreen();
+        }
+        QRect r = screenForAreas ? screenForAreas->geometry() : QRect();
+        r.moveTo(0, 0);
+        areas.append(r);
     } else {
         areas.append(rect());
     }
@@ -315,19 +322,6 @@ CaptureWidget::CaptureWidget(const CaptureRequest& req,
     // In fullscreen mode, use the normalized area; otherwise use widget rect
     QRect overlayArea =
       m_context.fullscreen && !areas.isEmpty() ? areas.first() : rect();
-#if defined(Q_OS_WIN)
-    if (m_spanningMode) {
-        // Show the help message on the screen the cursor is on
-        const QPoint cursorPos =
-          QCursor::pos() - m_virtualGeometry.topLeft();
-        for (const QRect& area : areas) {
-            if (area.contains(cursorPos)) {
-                overlayArea = area;
-                break;
-            }
-        }
-    }
-#endif
     OverlayMessage::init(this, overlayArea);
 
     if (m_config.showHelp()) {
@@ -338,10 +332,20 @@ CaptureWidget::CaptureWidget(const CaptureRequest& req,
     initQuitPrompt();
 
     updateCursor();
+
+#if defined(Q_OS_WIN)
+    if (m_followCursorMode) {
+        createDimOverlays();
+    }
+#endif
 }
 
 CaptureWidget::~CaptureWidget()
 {
+#if defined(Q_OS_WIN)
+    // Never leave a dimming overlay behind, whatever ended the capture
+    destroyDimOverlays();
+#endif
 #if defined(Q_OS_MACOS)
     for (QWidget* widget : qApp->topLevelWidgets()) {
         QString className(widget->metaObject()->className());
@@ -721,15 +725,7 @@ void CaptureWidget::paintEvent(QPaintEvent* paintEvent)
         painter.save();
         save = true;
     }
-#if defined(Q_OS_WIN)
-    if (m_spanningMode) {
-        drawSpanningBackground(&painter);
-    } else {
-        painter.drawPixmap(0, 0, m_context.screenshot);
-    }
-#else
     painter.drawPixmap(0, 0, m_context.screenshot);
-#endif
     if (m_selection && m_xywhDisplay) {
         const QRect& selection = m_selection->geometry().normalized();
         const qreal scale = m_context.screenshot.devicePixelRatio();
@@ -921,69 +917,180 @@ int CaptureWidget::selectToolItemAtPos(const QPoint& pos)
 }
 
 #if defined(Q_OS_WIN)
-void CaptureWidget::drawSpanningBackground(QPainter* painter)
+namespace {
+
+/**
+ * @brief Dims one screen that the capture widget is not currently on.
+ *
+ * Each overlay is bound to a single screen, so it has that screen's device
+ * pixel ratio and none of the coordinate problems a window spanning
+ * mixed-DPI monitors would have. It reports cursor entry to the capture
+ * widget, which then rebinds itself to this screen.
+ */
+class ScreenDimOverlay : public QWidget
 {
-    // Each screen's native grab is drawn into its logical rect. On screens
-    // whose DPR matches the window this is a 1:1 blit; on others Qt scales
-    // the preview. The final image is cropped from the native grab after
-    // the collapse, so output quality is unaffected either way.
-    for (auto it = m_screenPixmaps.constBegin();
-         it != m_screenPixmaps.constEnd();
-         ++it) {
-        const QRect target =
-          it.key()->geometry().translated(-m_virtualGeometry.topLeft());
-        painter->drawPixmap(target, it.value());
+public:
+    ScreenDimOverlay(CaptureWidget* owner,
+                     QScreen* screen,
+                     const QPixmap& screenshot,
+                     int opacity)
+      : QWidget(nullptr,
+                Qt::WindowStaysOnTopHint | Qt::FramelessWindowHint | Qt::Tool)
+      , m_owner(owner)
+      , m_screen(screen)
+      , m_screenshot(screenshot)
+      , m_opacity(opacity)
+    {
+        setAttribute(Qt::WA_QuitOnClose, false);
+        setMouseTracking(true);
+        setCursor(Qt::CrossCursor);
+        if (!m_screenshot.isNull()) {
+            m_screenshot.setDevicePixelRatio(screen->devicePixelRatio());
+        }
+        const QRect geom = screen->geometry();
+        setGeometry(geom);
+        show();
+        // The screen can only be pinned once the window handle exists, and
+        // doing so may move the window, so restate the geometry after
+        if (windowHandle()) {
+            windowHandle()->setScreen(screen);
+        }
+        setGeometry(geom);
+    }
+
+protected:
+    void paintEvent(QPaintEvent*) override
+    {
+        QPainter painter(this);
+        if (!painter.isActive()) {
+            return;
+        }
+        if (!m_screenshot.isNull()) {
+            painter.drawPixmap(0, 0, m_screenshot);
+        }
+        painter.fillRect(rect(), QColor(0, 0, 0, m_opacity));
+    }
+
+    void enterEvent(QEnterEvent*) override { claimScreen(); }
+    void mouseMoveEvent(QMouseEvent*) override { claimScreen(); }
+    // A press here means the cursor arrived faster than the enter event was
+    // delivered; claim the screen so the user can drag immediately
+    void mousePressEvent(QMouseEvent*) override { claimScreen(); }
+
+    void keyPressEvent(QKeyEvent* e) override
+    {
+        if (e->key() == Qt::Key_Escape && m_owner) {
+            m_owner->close();
+        }
+    }
+
+private:
+    void claimScreen()
+    {
+        if (m_owner) {
+            m_owner->onCursorEnteredScreen(m_screen);
+        }
+    }
+
+    CaptureWidget* m_owner;
+    QScreen* m_screen;
+    QPixmap m_screenshot;
+    int m_opacity;
+};
+
+} // namespace
+
+void CaptureWidget::createDimOverlays()
+{
+    for (QScreen* const screen : QGuiApplication::screens()) {
+        auto* overlay = new ScreenDimOverlay(
+          this, screen, m_screenPixmaps.value(screen), m_opacity);
+        m_dimOverlays[screen] = overlay;
+        if (screen == m_activeScreen) {
+            overlay->hide();
+        }
     }
 }
 
-void CaptureWidget::collapseSpanToPoint(const QPoint& globalPos)
+void CaptureWidget::updateDimOverlayVisibility()
 {
-    QScreen* screen = QGuiApplication::screenAt(globalPos);
-    if (screen == nullptr) {
-        screen = QGuiApplication::primaryScreen();
+    for (auto it = m_dimOverlays.begin(); it != m_dimOverlays.end(); ++it) {
+        if (!it.value().isNull()) {
+            it.value()->setVisible(it.key() != m_activeScreen);
+        }
     }
-    m_spanningMode = false;
+}
 
-    // Swap in the locked screen's native grab at its own DPR; from here
-    // on this capture behaves exactly like a single-monitor capture
+void CaptureWidget::destroyDimOverlays()
+{
+    for (auto it = m_dimOverlays.begin(); it != m_dimOverlays.end(); ++it) {
+        if (!it.value().isNull()) {
+            delete it.value();
+        }
+    }
+    m_dimOverlays.clear();
+}
+
+void CaptureWidget::onCursorEnteredScreen(QScreen* screen)
+{
+    if (!m_followCursorMode || screen == nullptr || screen == m_activeScreen) {
+        return;
+    }
+    // Once a selection exists the capture belongs to its screen; moving the
+    // cursor away must not discard it
+    if (m_selection && m_selection->isVisible()) {
+        return;
+    }
+    rebindToScreen(screen);
+}
+
+void CaptureWidget::rebindToScreen(QScreen* screen)
+{
+    m_activeScreen = screen;
+
+    // Swap in this screen's native grab at its own DPR, so everything
+    // downstream sees a plain single-monitor capture
     QPixmap native = m_screenPixmaps.value(screen);
     if (!native.isNull()) {
         native.setDevicePixelRatio(screen->devicePixelRatio());
         m_context.screenshot = native;
         m_context.origScreenshot = native;
     }
-    m_screenPixmaps.clear();
 
-    // Same geometry dance as the constructor's selected-screen path
-    move(screen->geometry().topLeft());
+    // Same geometry sequence as the constructor's selected-screen path
+    const QRect screenGeom = screen->geometry();
+    move(screenGeom.topLeft());
     QSize windowSize = m_context.screenshot.size();
-    if (m_context.screenshot.devicePixelRatio() > 1.0) {
-        windowSize = QSize(m_context.screenshot.width() /
-                             m_context.screenshot.devicePixelRatio(),
-                           m_context.screenshot.height() /
-                             m_context.screenshot.devicePixelRatio());
+    const qreal dpr = m_context.screenshot.devicePixelRatio();
+    if (dpr > 1.0) {
+        windowSize = QSize(qRound(m_context.screenshot.width() / dpr),
+                           qRound(m_context.screenshot.height() / dpr));
     }
     resize(windowSize);
     if (windowHandle()) {
         windowHandle()->setScreen(screen);
     }
+    move(screenGeom.topLeft());
 
-    QRect screenRect = screen->geometry();
-    screenRect.moveTo(0, 0);
-    m_buttonHandler->updateScreenRegions(QVector<QRect>{ screenRect });
-    OverlayMessage::setTargetArea(screenRect);
+    const QRect localRect(QPoint(0, 0), windowSize);
+    m_buttonHandler->updateScreenRegions(QVector<QRect>{ localRect });
+    OverlayMessage::setTargetArea(localRect);
 
-    QRect panelRect = screenRect;
+    QRect panelRect = localRect;
     panelRect.setWidth(m_colorPicker->width() * 1.5);
     m_panel->setGeometry(panelRect);
 
-    // The magnifier keeps its own copy of the screenshot, so recreate it
-    // against the locked screen's grab
+    // The magnifier snapshots the screenshot at construction
     if (m_magnifier) {
         m_magnifier->deleteLater();
         m_magnifier = new MagnifierWidget(
           m_context.screenshot, m_uiColor, m_config.squareMagnifier(), this);
+        m_magnifier->show();
     }
+
+    updateDimOverlayVisibility();
+    raise();
+    activateWindow();
     update();
 }
 #endif
@@ -996,14 +1103,11 @@ void CaptureWidget::mousePressEvent(QMouseEvent* e)
     m_mousePressedPos = e->pos();
     m_activeToolOffsetToMouseOnStart = QPoint();
 #if defined(Q_OS_WIN)
-    if (m_spanningMode) {
-        const QPoint globalPos = e->globalPosition().toPoint();
-        collapseSpanToPoint(globalPos);
-        // The event was delivered in the old (spanning) coordinates;
-        // remap everything recorded from it to the collapsed window
-        m_mousePressedPos = mapFromGlobal(globalPos);
-        m_context.mousePos = m_mousePressedPos;
-        m_selection->setDragStartPos(m_mousePressedPos);
+    if (m_followCursorMode) {
+        // The capture is now committed to this screen; stop following the
+        // cursor and let the other screens go back to normal
+        m_followCursorMode = false;
+        destroyDimOverlays();
     }
 #endif
     if (m_colorPicker->isVisible()) {

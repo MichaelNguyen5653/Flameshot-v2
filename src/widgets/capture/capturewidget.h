@@ -20,6 +20,7 @@
 #include "widgets/capture/magnifierwidget.h"
 #include "widgets/capture/selectionwidget.h"
 
+#include <QMap>
 #include <QMessageBox>
 #include <QPointer>
 #include <QTimer>
@@ -98,6 +99,11 @@ private slots:
 public:
     void removeToolObject(int index = -1);
     void showxywh();
+#if defined(Q_OS_WIN)
+    // Called by the per-screen dimming overlays when the cursor moves onto
+    // the screen they cover, before the capture has been committed
+    void onCursorEnteredScreen(QScreen* screen);
+#endif
 
 protected:
     void paintEvent(QPaintEvent* paintEvent) override;
@@ -160,11 +166,15 @@ private:
     QPoint snapToGrid(const QPoint& point) const;
 
 #if defined(Q_OS_WIN)
-    // Spanning ("snip across all monitors") capture: the overlay covers
-    // the whole virtual desktop until the first mouse press locks the
-    // capture onto one screen
-    void collapseSpanToPoint(const QPoint& globalPos);
-    void drawSpanningBackground(QPainter* painter);
+    // "Snip across all monitors": this widget always covers exactly one
+    // screen and follows the cursor between screens until the capture is
+    // committed by the first mouse press. A single window cannot span
+    // mixed-DPI monitors correctly, so the other screens are covered by
+    // their own per-screen dimming overlays instead.
+    void rebindToScreen(QScreen* screen);
+    void createDimOverlays();
+    void updateDimOverlayVisibility();
+    void destroyDimOverlays();
 #endif
 
     ////////////////////////////////////////
@@ -242,12 +252,14 @@ private:
 
     bool m_clipboardWorkaroundDone{ false };
 
-    // Spanning capture state (only ever true on Windows)
-    bool m_spanningMode{ false };
+    // Cursor-following multi-monitor capture (only ever true on Windows)
+    bool m_followCursorMode{ false };
 #if defined(Q_OS_WIN)
-    // Native per-screen grabs kept until the spanning capture collapses
+    // Native per-screen grabs, kept until the capture is committed
     QMap<QScreen*, QPixmap> m_screenPixmaps;
-    // Union of all screen geometries (global logical coordinates)
-    QRect m_virtualGeometry;
+    // Screen this widget is currently bound to
+    QScreen* m_activeScreen{ nullptr };
+    // Dimming overlays covering the screens this widget is not on
+    QMap<QScreen*, QPointer<QWidget>> m_dimOverlays;
 #endif
 };

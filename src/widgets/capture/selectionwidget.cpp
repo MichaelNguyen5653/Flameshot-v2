@@ -168,11 +168,6 @@ bool SelectionWidget::eventFilter(QObject* obj, QEvent* event)
     return false;
 }
 
-void SelectionWidget::setDragStartPos(const QPoint& p)
-{
-    m_dragStartPos = p;
-}
-
 void SelectionWidget::parentMousePressEvent(QMouseEvent* e)
 {
     if (e->button() != Qt::LeftButton) {
