@@ -46,6 +46,20 @@ jobs:
           cache-key-prefix: install-qt-action-${{ env.QT_VERSION }}
           dir: ${{ github.workspace }}/qt
 
+      - name: Locate Visual Studio
+        shell: pwsh
+        # The build runs windeployqt --compiler-runtime as a POST_BUILD step,
+        # which needs VCINSTALLDIR to find the MSVC redistributables. Without
+        # it that command fails and takes the whole build down with it.
+        # Resolved with vswhere rather than hardcoded, so this survives a
+        # change of runner image or VS edition.
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsPath = & $vswhere -latest -property installationPath
+          if (-not $vsPath) { throw "Could not locate a Visual Studio installation" }
+          "VCINSTALLDIR=$vsPath\VC" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          Write-Host "VCINSTALLDIR=$vsPath\VC"
+
       - name: Resolve version from tag
         id: version
         shell: pwsh
