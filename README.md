@@ -22,7 +22,7 @@ This is a fork of [Flameshot](https://github.com/flameshot-org/flameshot).
 
 ## Preview
 
-![image](https://raw.githubusercontent.com/flameshot-org/flameshot/master/data/img/preview/animatedUsage.gif)
+![image](data/img/preview/animatedUsage.gif)
 
 ## Installation
 
@@ -78,5 +78,4 @@ These shortcuts are available while capturing:
 
 ## Coming soon
 
-- Highlighter
 - Editor
