@@ -11,6 +11,16 @@ if(RELEASE_VERSION)
   set(FLAMESHOT_VERSION ${RELEASE_VERSION})
 endif()
 
+# An empty or malformed version silently produces project(VERSION ) and hence
+# empty FLAMESHOT_VERSION_* defines, which only surface much later as
+# "RC2127: version WORDs separated by commas expected" while compiling
+# flameshot.rc. Fail here instead, where the cause is obvious.
+if(NOT FLAMESHOT_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+  message(
+    FATAL_ERROR
+      "FLAMESHOT_VERSION must be MAJOR.MINOR.PATCH, got '${FLAMESHOT_VERSION}'")
+endif()
+
 # Flameshot-org
 set(GIT_API_URL "https://api.github.com/repos/flameshot-org/flameshot/releases/latest")
 
