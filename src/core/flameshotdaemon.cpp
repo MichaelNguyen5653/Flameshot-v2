@@ -418,8 +418,7 @@ void FlameshotDaemon::handleReplyCheckUpdates(QNetworkReply* reply)
             // on the notification downloads the update in one click
             for (const QJsonValue& asset : json["assets"].toArray()) {
                 const QString name = asset["name"].toString();
-                if (name.endsWith(QLatin1String(".msi"),
-                                  Qt::CaseInsensitive)) {
+                if (name.endsWith(QLatin1String(".msi"), Qt::CaseInsensitive)) {
                     const QString url =
                       asset["browser_download_url"].toString();
                     if (!url.isEmpty()) {
