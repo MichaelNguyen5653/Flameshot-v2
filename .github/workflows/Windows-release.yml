@@ -77,7 +77,10 @@ jobs:
           $version = $tag -replace '^v', ''
           if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Tag '$tag' must be a numeric version like v14.1.0" }
           Write-Host "Building version $version from tag $tag"
-          cmake -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release -DUSE_PORTABLE_CONFIG=OFF -DRELEASE_VERSION=$version
+          # The -D argument must be quoted: PowerShell does not expand a
+          # variable inside a bare token that starts with a dash, so an
+          # unquoted -DRELEASE_VERSION=$version reaches CMake literally.
+          cmake -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release -DUSE_PORTABLE_CONFIG=OFF "-DRELEASE_VERSION=$version"
 
       - name: Build
         shell: pwsh
