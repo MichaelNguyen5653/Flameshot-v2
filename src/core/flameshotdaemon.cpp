@@ -21,6 +21,7 @@
 
 #if !defined(DISABLE_UPDATE_CHECKER)
 #include <QDesktopServices>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkAccessManager>
@@ -238,6 +239,11 @@ void FlameshotDaemon::checkForUpdates()
     if (autoCheckEnabled) {
         if (!m_appLatestUrl.isEmpty()) {
             QDesktopServices::openUrl(QUrl(m_appLatestUrl));
+        } else {
+            // No update has been seen yet. Without this the menu entry did
+            // nothing at all and gave the user no indication why.
+            m_showManualCheckAppUpdateStatus = true;
+            getLatestAvailableVersion();
         }
     } else {
         m_showManualCheckAppUpdateStatus = true;
@@ -407,6 +413,22 @@ void FlameshotDaemon::handleReplyCheckUpdates(QNetworkReply* reply)
         if (Flameshot::instance()->getVersion() < appLatestVersion) {
             emit newVersionAvailable(appLatestVersion);
             m_appLatestUrl = json["html_url"].toString();
+#if defined(Q_OS_WIN)
+            // Prefer the installer itself over the release page, so acting
+            // on the notification downloads the update in one click
+            for (const QJsonValue& asset : json["assets"].toArray()) {
+                const QString name = asset["name"].toString();
+                if (name.endsWith(QLatin1String(".msi"),
+                                  Qt::CaseInsensitive)) {
+                    const QString url =
+                      asset["browser_download_url"].toString();
+                    if (!url.isEmpty()) {
+                        m_appLatestUrl = url;
+                    }
+                    break;
+                }
+            }
+#endif
             if (m_showManualCheckAppUpdateStatus) {
                 QDesktopServices::openUrl(QUrl(m_appLatestUrl));
             }

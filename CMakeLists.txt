@@ -21,8 +21,10 @@ if(NOT FLAMESHOT_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
       "FLAMESHOT_VERSION must be MAJOR.MINOR.PATCH, got '${FLAMESHOT_VERSION}'")
 endif()
 
-# Flameshot-org
-set(GIT_API_URL "https://api.github.com/repos/flameshot-org/flameshot/releases/latest")
+# Releases feed this fork checks for updates. It must point at this
+# repository: aimed at upstream it would compare against their version
+# numbers and send users to their downloads.
+set(GIT_API_URL "https://api.github.com/repos/MichaelNguyen5653/Flameshot-v2/releases/latest")
 
 project(
   flameshot

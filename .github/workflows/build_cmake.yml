@@ -109,7 +109,10 @@ jobs:
         working-directory: build
         shell: powershell
         run: |
-          cmake -DCMAKE_BUILD_TYPE=$env:BUILD_TYPE ../
+          # Quoted because PowerShell does not expand a variable inside a
+          # bare token starting with a dash: unquoted, CMake receives the
+          # literal text "$env:BUILD_TYPE" instead of its value.
+          cmake "-DCMAKE_BUILD_TYPE=$env:BUILD_TYPE" ../
 
       - name: Build
         working-directory: build
