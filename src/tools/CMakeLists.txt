@@ -87,4 +87,5 @@ target_sources(
           abstractpathtool.h
           abstracttwopointtool.h
           capturetool.h
+          highlightstyle.h
           toolfactory.h)

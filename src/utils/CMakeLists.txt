@@ -40,5 +40,7 @@ IF (WIN32)
   target_sources(
     flameshot
     PRIVATE winlnkfileparse.cpp
+            printscreenkey.h
+            printscreenkey.cpp
   )
 ENDIF()

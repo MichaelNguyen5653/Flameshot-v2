@@ -56,6 +56,34 @@ private slots:
 
 signals:
     void newVersionAvailable(QVersionNumber version);
+
+#if defined(Q_OS_WIN)
+public slots:
+    // Download the new installer, verify it against its published
+    // checksum, run it and restart the application. Falls back to opening
+    // the release page when the release carries no verifiable installer.
+    void startUpdateAndRestart();
+
+private:
+    void downloadUpdateInstaller();
+    void applyUpdate(const QString& msiPath);
+    void failUpdate(const QString& reason);
+
+    // Direct asset URLs from the latest release; empty when the release
+    // has no installer / checksum, in which case only the browser
+    // fallback is offered
+    QString m_appLatestMsiUrl;
+    QString m_appLatestShaUrl;
+    QString m_expectedMsiSha256;
+    bool m_updateInProgress = false;
+#endif
+#endif
+
+#if defined(Q_OS_WIN)
+private slots:
+    // Greets the user on the first launch after installation and offers to
+    // free up the Print Screen key. Disables itself afterwards.
+    void showWelcomeMessage();
 #endif
 
 private:

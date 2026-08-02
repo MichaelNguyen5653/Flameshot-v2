@@ -38,6 +38,18 @@
 
 #ifdef Q_OS_WIN
 #include "core/globalshortcutfilter.h"
+#include "utils/printscreenkey.h"
+#include <QCryptographicHash>
+#include <QDir>
+#include <QFile>
+#include <QIcon>
+#include <QMessageBox>
+#include <QProcess>
+#include <QProgressDialog>
+#include <QPushButton>
+#include <QStandardPaths>
+#include <QTextStream>
+#include <QTimer>
 #endif
 
 /**
@@ -100,7 +112,60 @@ FlameshotDaemon::FlameshotDaemon()
         getLatestAvailableVersion();
     }
 #endif
+
+#if defined(Q_OS_WIN)
+    if (ConfigHandler().showWelcomeMessage()) {
+        // Queued so the tray icon and event loop are up before a modal
+        // dialog appears
+        QTimer::singleShot(0, this, &FlameshotDaemon::showWelcomeMessage);
+    }
+#endif
 }
+
+#if defined(Q_OS_WIN)
+void FlameshotDaemon::showWelcomeMessage()
+{
+    // Flipped before the dialog is answered, so a user who dismisses it
+    // with the window controls is not greeted again on every launch
+    ConfigHandler().setShowWelcomeMessage(false);
+
+    QMessageBox msgBox;
+    msgBox.setWindowTitle(QStringLiteral("Flameshot v2"));
+    msgBox.setWindowIcon(QIcon(GlobalValues::iconPath()));
+    msgBox.setIcon(QMessageBox::Question);
+    msgBox.setText(QObject::tr("Welcome to Flameshot v2!"));
+
+    if (PrintScreenKey::isSnippingDisabled()) {
+        msgBox.setIcon(QMessageBox::Information);
+        msgBox.setInformativeText(
+          QObject::tr("Press Print Screen, or the tray icon, to take a "
+                      "screenshot."));
+        msgBox.setStandardButtons(QMessageBox::Ok);
+        msgBox.exec();
+        return;
+    }
+
+    msgBox.setInformativeText(
+      QObject::tr("Windows currently opens its own snipping tool when you "
+                  "press Print Screen. Would you like Flameshot to take over "
+                  "that key instead?") +
+      "\n\n" +
+      QObject::tr("Flameshot must be restarted for the change to take "
+                  "effect."));
+    QPushButton* yesBtn = msgBox.addButton(QMessageBox::Yes);
+    msgBox.addButton(QMessageBox::No);
+    msgBox.setDefaultButton(yesBtn);
+    msgBox.exec();
+
+    if (msgBox.clickedButton() == yesBtn &&
+        !PrintScreenKey::disableSnipping()) {
+        QMessageBox::warning(nullptr,
+                             QStringLiteral("Flameshot v2"),
+                             QObject::tr("The registry could not be "
+                                         "changed!"));
+    }
+}
+#endif
 
 void FlameshotDaemon::start()
 {
@@ -234,34 +299,202 @@ void FlameshotDaemon::getLatestAvailableVersion()
 
 void FlameshotDaemon::checkForUpdates()
 {
-    bool autoCheckEnabled = ConfigHandler().checkForUpdates();
-
-    if (autoCheckEnabled) {
-        if (!m_appLatestUrl.isEmpty()) {
-            QDesktopServices::openUrl(QUrl(m_appLatestUrl));
-        } else {
-            // No update has been seen yet. Without this the menu entry did
-            // nothing at all and gave the user no indication why.
-            m_showManualCheckAppUpdateStatus = true;
-            getLatestAvailableVersion();
-        }
-    } else {
+    if (m_appLatestUrl.isEmpty()) {
+        // No update has been seen yet; run a check and report its outcome.
+        // Without this the menu entry did nothing at all when automatic
+        // checks were enabled and gave the user no indication why.
         m_showManualCheckAppUpdateStatus = true;
+        getLatestAvailableVersion();
+        return;
+    }
 
-        if (m_appLatestUrl.isEmpty()) {
-            getLatestAvailableVersion();
-        } else {
-            QVersionNumber appLatestVersion =
-              QVersionNumber::fromString(m_appLatestVersion);
-            if (Flameshot::instance()->getVersion() < appLatestVersion) {
-                QDesktopServices::openUrl(QUrl(m_appLatestUrl));
-            } else {
-                sendTrayNotification(tr("You have the latest version"),
-                                     "Flameshot");
-            }
-        }
+    QVersionNumber appLatestVersion =
+      QVersionNumber::fromString(m_appLatestVersion);
+    if (Flameshot::instance()->getVersion() < appLatestVersion) {
+#if defined(Q_OS_WIN)
+        startUpdateAndRestart();
+#else
+        QDesktopServices::openUrl(QUrl(m_appLatestUrl));
+#endif
+    } else {
+        sendTrayNotification(tr("You have the latest version"), "Flameshot");
     }
 }
+
+#if defined(Q_OS_WIN)
+void FlameshotDaemon::startUpdateAndRestart()
+{
+    if (m_updateInProgress) {
+        return;
+    }
+
+    // Without a verifiable installer there is nothing safe to apply;
+    // offer the release page instead
+    if (m_appLatestMsiUrl.isEmpty() || m_appLatestShaUrl.isEmpty()) {
+        QDesktopServices::openUrl(QUrl(m_appLatestUrl));
+        return;
+    }
+
+    QMessageBox box;
+    box.setWindowTitle(QStringLiteral("Flameshot v2"));
+    box.setWindowIcon(QIcon(GlobalValues::iconPath()));
+    box.setIcon(QMessageBox::Question);
+    box.setText(
+      tr("Update to version %1 and restart?").arg(m_appLatestVersion));
+    box.setInformativeText(
+      tr("Flameshot will close while the update installs and reopen when it "
+         "is done. Windows will ask for administrator approval; if this "
+         "account has no administrator rights, administrator credentials "
+         "can be entered at that prompt.") +
+      "\n\n" + tr("Release notes: %1").arg(m_appLatestUrl));
+    QPushButton* updateBtn =
+      box.addButton(tr("Update now"), QMessageBox::AcceptRole);
+    box.addButton(tr("Later"), QMessageBox::RejectRole);
+    QPushButton* skipBtn =
+      box.addButton(tr("Skip this version"), QMessageBox::DestructiveRole);
+    box.setDefaultButton(updateBtn);
+    box.exec();
+
+    if (box.clickedButton() == skipBtn) {
+        ConfigHandler().setIgnoreUpdateToVersion(m_appLatestVersion);
+        if (m_trayIcon) {
+            m_trayIcon->clearUpdateBadge();
+        }
+        return;
+    }
+    if (box.clickedButton() != updateBtn) {
+        return;
+    }
+
+    m_updateInProgress = true;
+    downloadUpdateInstaller();
+}
+
+void FlameshotDaemon::downloadUpdateInstaller()
+{
+    // The checksum first: it is tiny, and there is no point downloading an
+    // installer that could never be verified
+    auto* shaReply =
+      m_networkCheckUpdates->get(QNetworkRequest(QUrl(m_appLatestShaUrl)));
+    connect(shaReply, &QNetworkReply::finished, this, [this, shaReply]() {
+        shaReply->deleteLater();
+        if (shaReply->error() != QNetworkReply::NoError) {
+            failUpdate(tr("Could not download the update checksum."));
+            return;
+        }
+        m_expectedMsiSha256 = QString::fromLatin1(shaReply->readAll())
+                                .trimmed()
+                                .section(' ', 0, 0)
+                                .toLower();
+        if (m_expectedMsiSha256.size() != 64) {
+            failUpdate(tr("The update checksum file is malformed."));
+            return;
+        }
+
+        auto* msiReply =
+          m_networkCheckUpdates->get(QNetworkRequest(QUrl(m_appLatestMsiUrl)));
+
+        auto* progress = new QProgressDialog(
+          tr("Downloading Flameshot v2 update…"), tr("Cancel"), 0, 100);
+        progress->setWindowTitle(QStringLiteral("Flameshot v2"));
+        progress->setWindowModality(Qt::ApplicationModal);
+        progress->setMinimumDuration(0);
+        progress->setAttribute(Qt::WA_DeleteOnClose);
+        connect(progress,
+                &QProgressDialog::canceled,
+                msiReply,
+                &QNetworkReply::abort);
+        connect(msiReply,
+                &QNetworkReply::downloadProgress,
+                progress,
+                [progress](qint64 received, qint64 total) {
+                    if (total > 0) {
+                        progress->setValue(
+                          static_cast<int>(received * 100 / total));
+                    }
+                });
+
+        connect(
+          msiReply,
+          &QNetworkReply::finished,
+          this,
+          [this, msiReply, progress]() {
+              msiReply->deleteLater();
+              progress->close();
+              if (msiReply->error() != QNetworkReply::NoError) {
+                  failUpdate(
+                    msiReply->error() == QNetworkReply::OperationCanceledError
+                      ? tr("Update canceled.")
+                      : tr("Could not download the update installer."));
+                  return;
+              }
+
+              const QByteArray installer = msiReply->readAll();
+              const QString actualSha = QString::fromLatin1(
+                QCryptographicHash::hash(installer, QCryptographicHash::Sha256)
+                  .toHex());
+              if (actualSha != m_expectedMsiSha256) {
+                  // A mismatched installer must never be offered for
+                  // execution
+                  failUpdate(
+                    tr("The downloaded installer failed verification and "
+                       "was discarded."));
+                  return;
+              }
+
+              const QString msiPath =
+                QStandardPaths::writableLocation(QStandardPaths::TempLocation) +
+                QStringLiteral("/Flameshot-v2-%1-win64.msi")
+                  .arg(m_appLatestVersion);
+              QFile msiFile(msiPath);
+              if (!msiFile.open(QIODevice::WriteOnly) ||
+                  msiFile.write(installer) != installer.size()) {
+                  failUpdate(tr("Could not save the installer to disk."));
+                  return;
+              }
+              msiFile.close();
+
+              applyUpdate(msiPath);
+          });
+    });
+}
+
+void FlameshotDaemon::applyUpdate(const QString& msiPath)
+{
+    // A batch script chains install and relaunch: cmd waits for msiexec,
+    // then starts the app from its (unchanged) install path. Run with
+    // plain '&' so a decline at the UAC prompt still brings the old
+    // version back instead of leaving nothing running.
+    const QString scriptPath =
+      QStandardPaths::writableLocation(QStandardPaths::TempLocation) +
+      QStringLiteral("/flameshot-v2-update.cmd");
+    QFile script(scriptPath);
+    if (!script.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        failUpdate(tr("Could not prepare the update script."));
+        return;
+    }
+    const QString exePath =
+      QDir::toNativeSeparators(QCoreApplication::applicationFilePath());
+    QTextStream out(&script);
+    out << "@echo off\r\n"
+        << "msiexec /i \"" << QDir::toNativeSeparators(msiPath)
+        << "\" /passive /norestart\r\n"
+        << "start \"\" \"" << exePath << "\"\r\n"
+        << "del \"%~f0\"\r\n";
+    script.close();
+
+    m_updateInProgress = false;
+    QProcess::startDetached(QStringLiteral("cmd.exe"),
+                            { QStringLiteral("/C"), scriptPath });
+    qApp->quit();
+}
+
+void FlameshotDaemon::failUpdate(const QString& reason)
+{
+    m_updateInProgress = false;
+    sendTrayNotification(reason, QStringLiteral("Flameshot v2"));
+}
+#endif
 #endif
 
 /**
@@ -411,25 +644,31 @@ void FlameshotDaemon::handleReplyCheckUpdates(QNetworkReply* reply)
         QVersionNumber appLatestVersion =
           QVersionNumber::fromString(m_appLatestVersion);
         if (Flameshot::instance()->getVersion() < appLatestVersion) {
-            emit newVersionAvailable(appLatestVersion);
             m_appLatestUrl = json["html_url"].toString();
 #if defined(Q_OS_WIN)
-            // Prefer the installer itself over the release page, so acting
-            // on the notification downloads the update in one click
+            // Collect the installer and its checksum; both are required
+            // for the in-place update flow, otherwise only the release
+            // page fallback is offered
+            m_appLatestMsiUrl.clear();
+            m_appLatestShaUrl.clear();
             for (const QJsonValue& asset : json["assets"].toArray()) {
                 const QString name = asset["name"].toString();
+                const QString url = asset["browser_download_url"].toString();
                 if (name.endsWith(QLatin1String(".msi"), Qt::CaseInsensitive)) {
-                    const QString url =
-                      asset["browser_download_url"].toString();
-                    if (!url.isEmpty()) {
-                        m_appLatestUrl = url;
-                    }
-                    break;
+                    m_appLatestMsiUrl = url;
+                } else if (name.endsWith(QLatin1String(".msi.sha256sum"),
+                                         Qt::CaseInsensitive)) {
+                    m_appLatestShaUrl = url;
                 }
             }
 #endif
+            emit newVersionAvailable(appLatestVersion);
             if (m_showManualCheckAppUpdateStatus) {
+#if defined(Q_OS_WIN)
+                startUpdateAndRestart();
+#else
                 QDesktopServices::openUrl(QUrl(m_appLatestUrl));
+#endif
             }
         } else if (m_showManualCheckAppUpdateStatus) {
             sendTrayNotification(tr("You have the latest version"),

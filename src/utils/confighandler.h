@@ -149,6 +149,7 @@ public:
     CONFIG_GETTER_SETTER(jpegQuality, setJpegQuality, int)
     CONFIG_GETTER_SETTER(reverseArrow, setReverseArrow, bool)
     CONFIG_GETTER_SETTER(arrowStyle, setArrowStyle, int)
+    CONFIG_GETTER_SETTER(rectangleFillMode, setRectangleFillMode, int)
     CONFIG_GETTER_SETTER(insecurePixelate, setInsecurePixelate, bool)
     CONFIG_GETTER_SETTER(showSelectionGeometryHideTime,
                          showSelectionGeometryHideTime,
@@ -157,6 +158,7 @@ public:
     CONFIG_GETTER_SETTER(ignorePrntScrForcesSnipping,
                          setIgnorePrntScrForcesSnipping,
                          bool)
+    CONFIG_GETTER_SETTER(showWelcomeMessage, setShowWelcomeMessage, bool)
 #endif
 #if !defined(Q_OS_MACOS)
     CONFIG_GETTER_SETTER(captureActiveMonitor, setCaptureActiveMonitor, bool)

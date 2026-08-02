@@ -3,6 +3,8 @@
 
 #include "markertool.h"
 
+#include "tools/highlightstyle.h"
+
 #include <QPainter>
 
 #define PADDING_VALUE 14
@@ -52,31 +54,21 @@ CaptureTool* MarkerTool::copy(QObject* parent)
 void MarkerTool::process(QPainter& painter, const QPixmap& pixmap)
 {
     Q_UNUSED(pixmap)
-    auto compositionMode = painter.compositionMode();
-    qreal opacity = painter.opacity();
     auto pen = painter.pen();
-    painter.setCompositionMode(QPainter::CompositionMode_Multiply);
-    painter.setOpacity(0.35);
+    HighlightStyle::PainterState highlight(painter);
     painter.setPen(QPen(color(), size()));
     painter.drawLine(points().first, points().second);
     painter.setPen(pen);
-    painter.setOpacity(opacity);
-    painter.setCompositionMode(compositionMode);
 }
 
 void MarkerTool::paintMousePreview(QPainter& painter,
                                    const CaptureContext& context)
 {
-    auto compositionMode = painter.compositionMode();
-    qreal opacity = painter.opacity();
     auto pen = painter.pen();
-    painter.setCompositionMode(QPainter::CompositionMode_Multiply);
-    painter.setOpacity(0.35);
+    HighlightStyle::PainterState highlight(painter);
     painter.setPen(QPen(context.color, PADDING_VALUE + context.toolSize));
     painter.drawLine(context.mousePos, context.mousePos);
     painter.setPen(pen);
-    painter.setOpacity(opacity);
-    painter.setCompositionMode(compositionMode);
 }
 
 void MarkerTool::drawStart(const CaptureContext& context)

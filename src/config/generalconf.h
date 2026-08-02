@@ -111,6 +111,9 @@ private:
 #if !defined(Q_OS_MACOS)
     void initCaptureRegionMode();
 #endif
+#if defined(Q_OS_WIN)
+    void initShowWelcomeMessage();
+#endif
 #if defined(Q_OS_MACOS)
     void initUseNativeFullscreen();
 #endif
@@ -167,6 +170,9 @@ private:
     QCheckBox* m_insecurePixelate;
 #if !defined(Q_OS_MACOS)
     QComboBox* m_captureRegionMode;
+#endif
+#if defined(Q_OS_WIN)
+    QCheckBox* m_showWelcomeMessage;
 #endif
 #if defined(Q_OS_MACOS)
     QCheckBox* m_useNativeFullscreen;

@@ -7,6 +7,9 @@
 #include "tools/capturetool.h"
 #include "tools/toolfactory.h"
 #include "utils/globalvalues.h"
+#if defined(Q_OS_WIN)
+#include "utils/printscreenkey.h"
+#endif
 
 #include <QCheckBox>
 #include <QCursor>
@@ -293,22 +296,12 @@ void ShortcutsWidget::checkPrintScreenForcesSnipping()
 
 bool ShortcutsWidget::isPrintScreenKeyForSnippingDisabled()
 {
-    QSettings PrintKeyForSnipping("HKEY_CURRENT_USER\\Control Panel\\Keyboard",
-                                  QSettings::NativeFormat);
-    return PrintKeyForSnipping.value("PrintScreenKeyForSnippingEnabled", 1)
-             .toInt() == 0;
+    return PrintScreenKey::isSnippingDisabled();
 }
 
 bool ShortcutsWidget::disablePrintScreenKeyForSnipping()
 {
-    QSettings PrintKeyForSnipping("HKEY_CURRENT_USER\\Control Panel\\Keyboard",
-                                  QSettings::NativeFormat);
-    PrintKeyForSnipping.setValue("PrintScreenKeyForSnippingEnabled", 0);
-    PrintKeyForSnipping.sync();
-    if (QSettings::AccessError == PrintKeyForSnipping.status()) {
-        return false;
-    }
-    return this->isPrintScreenKeyForSnippingDisabled();
+    return PrintScreenKey::disableSnipping();
 }
 
 void ShortcutsWidget::initMsScreenclipCheckbox()

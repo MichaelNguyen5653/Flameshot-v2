@@ -137,10 +137,15 @@ static QMap<class QString, QSharedPointer<ValueHandler>>
     OPTION("jpegQuality"                 , BoundedInt        ( 0,100,75      )),
     OPTION("reverseArrow"                ,Bool               ( false         )),
     OPTION("arrowStyle"                  ,BoundedInt         ( 0, 1, 0       )),
+    // Filled rectangle appearance: 0 = solid, 1 = highlighter
+    OPTION("rectangleFillMode"           ,BoundedInt         ( 0, 1, 0       )),
     OPTION("insecurePixelate"            ,Bool               ( false         )),
 #if defined(Q_OS_WIN)
     // Not visible on settings dialog
     OPTION("ignorePrntScrForcesSnipping" ,Bool               ( false         )),
+    // Shown once on first launch, then turned off automatically. The user
+    // can switch it back on from the General settings page.
+    OPTION("showWelcomeMessage"          ,Bool               ( true          )),
 #endif
 #if !defined(Q_OS_MACOS)
     // Auto-select the monitor under the cursor instead of showing

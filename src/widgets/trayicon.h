@@ -13,6 +13,11 @@ public:
 
 #if !defined(DISABLE_UPDATE_CHECKER)
     QAction* appUpdates();
+#if defined(Q_OS_WIN)
+    // Amber dot on the tray icon while an update is available
+    void showUpdateBadge(const QString& version);
+    void clearUpdateBadge();
+#endif
 #endif
 
 private:
@@ -29,6 +34,9 @@ private:
 
     QMenu* m_menu;
     QMenu* m_screenMenu;
+#if defined(Q_OS_WIN)
+    QIcon m_baseIcon;
+#endif
     QAction* m_captureAction;
     QAction* m_launcherAction;
     QAction* m_infoAction;

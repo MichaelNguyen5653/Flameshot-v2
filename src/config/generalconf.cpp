@@ -57,6 +57,9 @@ GeneralConf::GeneralConf(QWidget* parent)
 #if !defined(Q_OS_MACOS)
     initCaptureRegionMode();
 #endif
+#if defined(Q_OS_WIN)
+    initShowWelcomeMessage();
+#endif
 #if defined(Q_OS_MACOS)
     initUseNativeFullscreen();
 #endif
@@ -131,6 +134,9 @@ void GeneralConf::_updateComponents(bool allowEmptySavePath)
     int regionModeIndex = m_captureRegionMode->findData(
       static_cast<int>(config.captureRegionMode()));
     m_captureRegionMode->setCurrentIndex(qMax(0, regionModeIndex));
+#endif
+#if defined(Q_OS_WIN)
+    m_showWelcomeMessage->setChecked(config.showWelcomeMessage());
 #endif
 #if defined(Q_OS_MACOS)
     m_useNativeFullscreen->setChecked(config.useNativeFullscreen());
@@ -921,6 +927,22 @@ void GeneralConf::setInsecurePixelate(bool checked)
 {
     ConfigHandler().setInsecurePixelate(checked);
 }
+
+#if defined(Q_OS_WIN)
+void GeneralConf::initShowWelcomeMessage()
+{
+    m_showWelcomeMessage =
+      new QCheckBox(tr("Show the first-run welcome dialog again"), this);
+    m_showWelcomeMessage->setToolTip(
+      tr("The welcome dialog is shown once after installation and then turns "
+         "itself off. Tick this to see it again on the next launch."));
+    m_scrollAreaLayout->addWidget(m_showWelcomeMessage);
+
+    connect(m_showWelcomeMessage, &QCheckBox::clicked, [](bool checked) {
+        ConfigHandler().setShowWelcomeMessage(checked);
+    });
+}
+#endif
 
 #if !defined(Q_OS_MACOS)
 void GeneralConf::initCaptureRegionMode()

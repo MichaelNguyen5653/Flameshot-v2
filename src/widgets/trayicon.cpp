@@ -9,6 +9,8 @@
 #include <QApplication>
 #include <QGuiApplication>
 #include <QMenu>
+#include <QPainter>
+#include <QPixmap>
 #include <QScreen>
 #include <QTimer>
 #include <QUrl>
@@ -46,6 +48,10 @@ TrayIcon::TrayIcon(QObject* parent)
     }
 #endif
 
+#if defined(Q_OS_WIN)
+    // Kept so the update badge can be composited onto a clean copy
+    m_baseIcon = icon;
+#endif
     setIcon(icon);
 
 #if defined(Q_OS_MACOS)
@@ -103,6 +109,36 @@ QAction* TrayIcon::appUpdates()
 {
     return m_appUpdates;
 }
+
+#if defined(Q_OS_WIN)
+void TrayIcon::showUpdateBadge(const QString& version)
+{
+    // Composited at runtime onto the normal icon rather than shipped as a
+    // second icon set, so it stays correct if the artwork changes
+    const int side = 64;
+    QPixmap pix = m_baseIcon.pixmap(side, side);
+    QPainter painter(&pix);
+    painter.setRenderHint(QPainter::Antialiasing);
+    const int diameter = side * 2 / 5;
+    const QRect dot(
+      side - diameter - 2, side - diameter - 2, diameter, diameter);
+    // Thin dark outline so the amber reads on light and dark taskbars
+    painter.setPen(QPen(QColor(32, 32, 32), 3));
+    painter.setBrush(QColor(0xFF, 0xC1, 0x07));
+    painter.drawEllipse(dot);
+    painter.end();
+    setIcon(QIcon(pix));
+    setToolTip(QStringLiteral("Flameshot v2 — ") +
+               tr("update available (%1)").arg(version));
+}
+
+void TrayIcon::clearUpdateBadge()
+{
+    setIcon(m_baseIcon);
+    setToolTip(QStringLiteral("Flameshot"));
+    m_appUpdates->setText(tr("Check for updates"));
+}
+#endif
 #endif
 
 void TrayIcon::initMenu()
@@ -153,23 +189,30 @@ void TrayIcon::initMenu()
             FlameshotDaemon::instance(),
             &FlameshotDaemon::checkForUpdates);
 
-    connect(FlameshotDaemon::instance(),
-            &FlameshotDaemon::newVersionAvailable,
-            this,
-            [this](const QVersionNumber& version) {
-                if (ConfigHandler().checkForUpdates()) {
-                    QString newVersion =
-                      tr("Download version %1").arg(version.toString());
-                    m_appUpdates->setText(newVersion);
-                    m_appUpdates->setVisible(true);
+    connect(
+      FlameshotDaemon::instance(),
+      &FlameshotDaemon::newVersionAvailable,
+      this,
+      [this](const QVersionNumber& version) {
+          if (ConfigHandler().checkForUpdates()) {
+#if defined(Q_OS_WIN)
+              QString newVersion =
+                tr("Update to version %1 and restart").arg(version.toString());
+              showUpdateBadge(version.toString());
+#else
+              QString newVersion =
+                tr("Download version %1").arg(version.toString());
+#endif
+              m_appUpdates->setText(newVersion);
+              m_appUpdates->setVisible(true);
 
-                    // hack to work around menu not updating when the text /
-                    // visibility is modified Force menu refresh by removing and
-                    // re-adding the action
-                    m_menu->removeAction(m_appUpdates);
-                    m_menu->insertAction(m_infoAction, m_appUpdates);
-                }
-            });
+              // hack to work around menu not updating when the text /
+              // visibility is modified Force menu refresh by removing and
+              // re-adding the action
+              m_menu->removeAction(m_appUpdates);
+              m_menu->insertAction(m_infoAction, m_appUpdates);
+          }
+      });
     updateCheckUpdatesMenuVisibility();
 #endif
 
