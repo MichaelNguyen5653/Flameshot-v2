@@ -31,6 +31,7 @@
 #include <QDir>
 #include <QLibraryInfo>
 #include <QNetworkProxyFactory>
+#include <QProcess>
 #include <QSharedMemory>
 #include <QTimer>
 #include <QTranslator>
@@ -217,46 +218,57 @@ int main(int argc, char* argv[])
         QApplication app(argc, argv);
         configureTranslation(translator, qtTranslator);
 
+        int exitCode = 0;
+        // Scoped so the single-instance guard below is destroyed, and its
+        // lock released, before a restart relaunches the application
+        {
 #ifdef USE_KDSINGLEAPPLICATION
 #ifdef Q_OS_UNIX
-        setup_unix_signal_handlers();
-        auto signalDaemon = SignalDaemon();
+            setup_unix_signal_handlers();
+            auto signalDaemon = SignalDaemon();
 #endif
-        auto kdsa =
-          KDSingleApplication(QStringLiteral("org.flameshot.Flameshot"));
+            auto kdsa =
+              KDSingleApplication(QStringLiteral("org.flameshot.Flameshot"));
 
-        if (!kdsa.isPrimaryInstance() &&
-            !ConfigHandler().allowMultipleGuiInstances()) {
-            return 0; // Quit
-        }
+            if (!kdsa.isPrimaryInstance() &&
+                !ConfigHandler().allowMultipleGuiInstances()) {
+                return 0; // Quit
+            }
 #endif
 
-        configureApp(true, translator, qtTranslator);
-        auto c = Flameshot::instance();
-        FlameshotDaemon::start();
+            configureApp(true, translator, qtTranslator);
+            auto c = Flameshot::instance();
+            FlameshotDaemon::start();
 
 #if defined(USE_KDSINGLEAPPLICATION) &&                                        \
   (defined(Q_OS_MACOS) || defined(Q_OS_WIN))
-        if (kdsa.isPrimaryInstance()) {
-            QObject::connect(
-              &kdsa,
-              &KDSingleApplication::messageReceived,
-              FlameshotDaemon::instance(),
-              &FlameshotDaemon::messageReceivedFromSecondaryInstance);
-        }
+            if (kdsa.isPrimaryInstance()) {
+                QObject::connect(
+                  &kdsa,
+                  &KDSingleApplication::messageReceived,
+                  FlameshotDaemon::instance(),
+                  &FlameshotDaemon::messageReceivedFromSecondaryInstance);
+            }
 #endif
 
 #if !(defined(Q_OS_MACOS) || defined(Q_OS_WIN))
-        new FlameshotDBusAdapter(c);
-        QDBusConnection dbus = QDBusConnection::sessionBus();
-        if (!dbus.isConnected()) {
-            AbstractLogger::error()
-              << QObject::tr("Unable to connect via DBus");
-        }
-        dbus.registerObject(QStringLiteral("/"), c);
-        dbus.registerService(QStringLiteral("org.flameshot.Flameshot"));
+            new FlameshotDBusAdapter(c);
+            QDBusConnection dbus = QDBusConnection::sessionBus();
+            if (!dbus.isConnected()) {
+                AbstractLogger::error()
+                  << QObject::tr("Unable to connect via DBus");
+            }
+            dbus.registerObject(QStringLiteral("/"), c);
+            dbus.registerService(QStringLiteral("org.flameshot.Flameshot"));
 #endif
-        return qApp->exec();
+            exitCode = qApp->exec();
+        }
+
+        if (Flameshot::instance()->restartRequested()) {
+            QProcess::startDetached(QCoreApplication::applicationFilePath(),
+                                    QStringList());
+        }
+        return exitCode;
     }
 
     /*--------------|

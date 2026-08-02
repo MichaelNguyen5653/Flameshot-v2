@@ -70,6 +70,13 @@ public:
     void setExternalWidget(bool b);
     bool haveExternalWidget();
 
+    // Ask for the application to be relaunched once it has shut down. The
+    // relaunch itself happens in main(), after the single-instance lock has
+    // been released, otherwise the new process would see one already
+    // running and exit immediately.
+    void requestRestart();
+    bool restartRequested() const;
+
 signals:
     void captureTaken(QPixmap p);
     void captureFailed();
@@ -87,6 +94,7 @@ private:
     // class members
     static Origin m_origin;
     bool m_haveExternalWidget;
+    bool m_restartRequested{ false };
 
     QPointer<CaptureWidget> m_captureWindow;
     QPointer<InfoWindow> m_infoWindow;

@@ -539,5 +539,15 @@ bool Flameshot::haveExternalWidget()
     return m_haveExternalWidget;
 }
 
+void Flameshot::requestRestart()
+{
+    m_restartRequested = true;
+}
+
+bool Flameshot::restartRequested() const
+{
+    return m_restartRequested;
+}
+
 // STATIC ATTRIBUTES
 Flameshot::Origin Flameshot::m_origin = Flameshot::DAEMON;

@@ -173,6 +173,14 @@ void TrayIcon::initMenu()
     updateCheckUpdatesMenuVisibility();
 #endif
 
+    auto* restartAction = new QAction(tr("&Restart"), this);
+    connect(restartAction, &QAction::triggered, this, [this]() {
+        // Flag the relaunch and shut down; main() starts the new process
+        // once the single-instance lock has been released
+        Flameshot::instance()->requestRestart();
+        qApp->quit();
+    });
+
     QAction* quitAction = new QAction(tr("&Quit"), this);
     connect(quitAction, &QAction::triggered, qApp, &QCoreApplication::quit);
 
@@ -205,6 +213,7 @@ void TrayIcon::initMenu()
 #endif
     m_menu->addAction(m_infoAction);
     m_menu->addSeparator();
+    m_menu->addAction(restartAction);
     m_menu->addAction(quitAction);
 }
 
