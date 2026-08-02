@@ -76,6 +76,12 @@ private:
     QString m_appLatestShaUrl;
     QString m_expectedMsiSha256;
     bool m_updateInProgress = false;
+
+    // Downloads must not share m_networkCheckUpdates: that manager's
+    // finished signal is wired to handleReplyCheckUpdates, which consumes
+    // the reply body as JSON, so a shared manager empties the buffer
+    // before the download handler can read it
+    QNetworkAccessManager* m_updateDownloader = nullptr;
 #endif
 #endif
 

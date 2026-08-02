@@ -322,6 +322,18 @@ void FlameshotDaemon::checkForUpdates()
 }
 
 #if defined(Q_OS_WIN)
+namespace {
+// Release asset URLs redirect to a CDN host, so following redirects has to
+// be requested rather than assumed
+QNetworkRequest assetRequest(const QString& url)
+{
+    QNetworkRequest request((QUrl(url)));
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
+    return request;
+}
+} // namespace
+
 void FlameshotDaemon::startUpdateAndRestart()
 {
     if (m_updateInProgress) {
@@ -372,10 +384,13 @@ void FlameshotDaemon::startUpdateAndRestart()
 
 void FlameshotDaemon::downloadUpdateInstaller()
 {
+    if (m_updateDownloader == nullptr) {
+        m_updateDownloader = new QNetworkAccessManager(this);
+    }
+
     // The checksum first: it is tiny, and there is no point downloading an
     // installer that could never be verified
-    auto* shaReply =
-      m_networkCheckUpdates->get(QNetworkRequest(QUrl(m_appLatestShaUrl)));
+    auto* shaReply = m_updateDownloader->get(assetRequest(m_appLatestShaUrl));
     connect(shaReply, &QNetworkReply::finished, this, [this, shaReply]() {
         shaReply->deleteLater();
         if (shaReply->error() != QNetworkReply::NoError) {
@@ -392,7 +407,7 @@ void FlameshotDaemon::downloadUpdateInstaller()
         }
 
         auto* msiReply =
-          m_networkCheckUpdates->get(QNetworkRequest(QUrl(m_appLatestMsiUrl)));
+          m_updateDownloader->get(assetRequest(m_appLatestMsiUrl));
 
         auto* progress = new QProgressDialog(
           tr("Downloading Flameshot v2 update…"), tr("Cancel"), 0, 100);
